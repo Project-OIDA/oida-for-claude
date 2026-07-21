@@ -1,0 +1,7 @@
+{
+  "name": "oida",
+  "version": "0.1.0",
+  "description": "OIDA for Claude — at the end of every Claude Code session, captures the transcript (redacted locally), keeps only sessions in repos your workspace has designated, and pushes them to your OIDA epistemic layer. Fully deterministic: no API keys and no LLM run on your machine (extraction happens server-side). Set up once with /oida:install; pause anytime with /oida:pause.",
+  "author": { "name": "Project-OIDA" },
+  "homepage": "https://github.com/Project-OIDA/oida-for-claude"
+}

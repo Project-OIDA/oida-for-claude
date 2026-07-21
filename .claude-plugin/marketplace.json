@@ -1,0 +1,14 @@
+{
+  "name": "oida-for-claude",
+  "owner": { "name": "Project-OIDA" },
+  "metadata": {
+    "description": "OIDA session-capture clients — install with: /plugin marketplace add Project-OIDA/oida-for-claude"
+  },
+  "plugins": [
+    {
+      "name": "oida",
+      "source": "./oida",
+      "description": "OIDA for Claude — deterministically captures, redacts, and pushes each AI-coding session to your OIDA workspace at session end. No API keys, no LLM on your machine."
+    }
+  ]
+}
