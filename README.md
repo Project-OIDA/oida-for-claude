@@ -62,6 +62,10 @@ oida/
 
 ## Privacy & security posture
 
+**Before you install, read [`docs/CONSENT.md`](docs/CONSENT.md)** — what is (and isn't)
+captured, your controls (pause / rotate / withdraw / erase), and why you should **mint your
+own device key**. Your organization's formal privacy notice is the authoritative document.
+
 - **Redaction is local and best-effort.** The server treats the transcript as
   already-clean, so keep `engine/redact.py` current with new credential shapes.
 - **Allowlist, default deny.** Only repos your workspace designates are captured;
@@ -84,4 +88,5 @@ for m in sources redact transcript metrics extract; do python3 oida/engine/$m.py
 - `commands/install.md` — set the real default `apiUrl` host.
 - `engine/extract.py` — Cowork (Claude Desktop) sessions are discovered but out of
   client v1 (repo-scoped CLI only); Codex CLI support is Phase C.
-- Consent screen at key mint + per-plan caps are Phase D (server-side).
+- Consent screen at key mint + per-plan caps + server-authoritative pause/off-hours shipped
+  in Phase D (see [`docs/CONSENT.md`](docs/CONSENT.md)).

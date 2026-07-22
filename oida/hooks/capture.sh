@@ -44,6 +44,32 @@ if [ -f "${MARKER}" ]; then
 fi
 touch "${MARKER}" 2>/dev/null                       # claim this run before doing work
 
+# ── Server-authoritative pause + off-hours (Phase D3), local fallback ──────────
+# Curl the device-authed settings endpoint (source of truth). If unreachable, fall
+# back to local off-hours enforcement unless opted all-hours. Off-hours = outside
+# Mon–Fri 08:00–20:00 (diritto alla disconnessione). Ported from control8/auto-eod.sh.
+_offhours() { [ "$1" -gt 5 ] || [ "$2" -lt 8 ] || [ "$2" -ge 20 ]; }   # $1=dow(1-7) $2=hr(0-23)
+API_URL="$(python3 -c "import json;print(json.load(open('${CONFIG}')).get('apiUrl',''))" 2>/dev/null)"
+DEVICE_KEY="$(python3 -c "import json;print(json.load(open('${CONFIG}')).get('deviceKey',''))" 2>/dev/null)"
+S_JSON=""
+if command -v curl >/dev/null 2>&1 && [ -n "${API_URL}" ] && [ -n "${DEVICE_KEY}" ]; then
+  S_JSON="$(curl -fsS --max-time 4 -H "Authorization: Bearer ${DEVICE_KEY}" "${API_URL%/}/ingest/sessions/settings" 2>/dev/null)"
+fi
+if [ -n "${S_JSON}" ]; then                          # server reachable = source of truth
+  read -r S_PAUSED S_ENFORCE S_TZ <<< "$(printf '%s' "${S_JSON}" | python3 -c 'import json,sys
+try: d=json.load(sys.stdin)
+except Exception: print("0 1 Europe/Rome"); sys.exit(0)
+print("%d %d %s" % (1 if d.get("paused") else 0, 0 if d.get("enforceOffHours") is False else 1, d.get("timezone") or "Europe/Rome"))' 2>/dev/null)"
+  [ "${S_PAUSED}" = "1" ] && { echo "$(date): skip — paused via server settings" >>"${LOG}"; exit 0; }
+  if [ "${S_ENFORCE}" != "0" ]; then
+    dow="$(TZ="${S_TZ:-Europe/Rome}" date +%u)"; hr="$((10#$(TZ="${S_TZ:-Europe/Rome}" date +%H)))"
+    _offhours "${dow}" "${hr}" && { echo "$(date): skip — off-hours (${S_TZ:-Europe/Rome})" >>"${LOG}"; exit 0; }
+  fi
+elif [ ! -f "${OIDA_HOME}/TRACK_ALL_HOURS" ] && [ "${OIDA_ALL_HOURS:-0}" != "1" ]; then
+  dow="$(date +%u)"; hr="$((10#$(date +%H)))"          # server unreachable -> local off-hours fallback
+  _offhours "${dow}" "${hr}" && { echo "$(date): skip — off-hours (local fallback)" >>"${LOG}"; exit 0; }
+fi
+
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
 
 # ── 2. deterministic plan (no LLM, no network except the cached allowlist) ──────

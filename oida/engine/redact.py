@@ -18,12 +18,18 @@ _REDACTIONS = [
     (re.compile(r"oida_sess_[A-Za-z0-9]{6,}_[A-Za-z0-9]{6,}"), "«redacted:oida_device_key»"),
     (re.compile(r"sk-ant-[A-Za-z0-9_\-]{12,}"), "«redacted:anthropic_key»"),
     (re.compile(r"sk-[A-Za-z0-9_\-]{20,}"), "«redacted:openai_key»"),
+    (re.compile(r"\b[rs]k_(?:live|test)_[A-Za-z0-9]{16,}"), "«redacted:stripe_key»"),
+    (re.compile(r"\bAIza[0-9A-Za-z_\-]{20,}"), "«redacted:google_api_key»"),
+    (re.compile(r"\bnpm_[A-Za-z0-9]{20,}"), "«redacted:npm_token»"),
     (re.compile(r"\b[a-z][a-z0-9+.\-]*://[^\s:@/]+:[^\s@/]+@\S+"), "«redacted:connection_string»"),
+    (re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9/_\-]+"), "«redacted:slack_webhook»"),
     (re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{6,}"), "«redacted:jwt»"),
     (re.compile(r"\b(?:ghp|gho|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}"), "«redacted:github_token»"),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "«redacted:aws_key»"),
     (re.compile(r"\bkva_[A-Za-z0-9]{12,}"), "«redacted:kva_key»"),
     (re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}"), "«redacted:slack_token»"),
+    (re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"), "«redacted:private_key»"),
+    (re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"), "«redacted:private_key»"),
     (re.compile(r"(?i)\b(?:authorization|bearer)\b[:\s]+[A-Za-z0-9._\-]{16,}"), "«redacted:bearer»"),
     (re.compile(
         r"(?i)\b([A-Z0-9_]*(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE_KEY))\b\s*[:=]\s*['\"]?[^\s'\"]{8,}"),
@@ -49,6 +55,12 @@ def _self_test():
         ("AKIAIOSFODNN7EXAMPLE here", "aws_key"),
         ("Authorization: Bearer abcdef0123456789abcdef", "bearer"),
         ('DATABASE_PASSWORD="hunter2secret"', "redacted"),
+        ("stripe_key=sk_live_0123456789abcdefghij", "stripe_key"),
+        ("rk_test_0123456789abcdefghij here", "stripe_key"),
+        ("google AIzaSyA1B2C3D4E5F6G7H8I9J0KLMNOPqrstuvw", "google_api_key"),
+        ("token npm_0123456789abcdefghij0123456789abcd", "npm_token"),
+        ("hook https://hooks.slack.com/services/T000/B000/xxxxxxxxxxxxxxxxxxxxxxxx", "slack_webhook"),
+        ("-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----", "private_key"),
     ]
     for raw, marker in cases:
         out = redact(raw)

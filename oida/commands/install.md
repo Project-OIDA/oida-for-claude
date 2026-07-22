@@ -5,8 +5,8 @@ argument-hint: "[device-key]"
 
 Set up the OIDA session client on this machine. Use the Bash tool and **never print the full device key back to the transcript** after reading it.
 
-1. **Device key** — use `$ARGUMENTS` if the user passed one; otherwise ask them to paste the key minted in OIDA → Settings → "OIDA for Claude" (shown once, looks like `oida_sess_…`).
-2. **API URL** — default to the OIDA production API URL unless the user gives one. <!-- operator: set the real default host before publishing this plugin -->
+1. **Device key** — use `$ARGUMENTS` if the user passed one; otherwise ask them to paste the key minted in OIDA → Settings → "OIDA for Claude" (shown once, looks like `oida_sess_…`). Remind them to **mint their own key** (consent is recorded against whoever mints it — see `docs/CONSENT.md`), not reuse someone else's.
+2. **API URL** — default to `https://oida-api.onrender.com` (the OIDA production API) unless the user gives one.
 3. Create `~/.oida/` (mode 700) and write `~/.oida/config.json` (mode 600):
    `{"apiUrl": "<api-url>", "deviceKey": "<device-key>"}`
 4. Verify: `curl -fsS -H "Authorization: Bearer <key>" <api-url>/ingest/sessions/allowlist` — report the designated repos, or a clear error if the key/URL is wrong (do not proceed on 401).
