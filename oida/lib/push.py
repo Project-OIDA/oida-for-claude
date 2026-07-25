@@ -7,7 +7,9 @@ transcript{turns, tool_calls, metrics, git_stats}, client_version, git_email),
 gzip it, POST to /ingest/sessions with the device bearer, retry with backoff on
 5xx/network, and record the ledger key on a 2xx. The server is idempotent
 (recordDelivery on session_id + content-hash), so at-least-once is safe: a retry
-that already landed is deduped, never double-ingested.
+that already landed is deduped, never double-ingested. A session the server
+permanently rejects (400/413) is skip-queued rather than re-sent forever, and a
+rejected device key aborts the run instead of burning every remaining session.
 """
 import argparse
 import gzip
@@ -73,10 +75,22 @@ def build_envelope(desc):
 
 
 def push_one(config, envelope):
-    """POST one envelope. Returns True on 2xx (recorded), False on a permanent
-    4xx (skip), retries 5xx/network up to MAX_ATTEMPTS with exponential backoff."""
+    """POST one envelope. Retries 5xx/network up to MAX_ATTEMPTS with exponential
+    backoff. Returns a status the caller acts on:
+      "ok"        — 2xx: record the ledger, done.
+      "skip"      — permanent content rejection (400 bad envelope / 413 too large):
+                    skip-queue it so it is NOT re-planned and re-POSTed every scan.
+                    The ledger_key is derived from mtime:size, which does not
+                    change, so without this the same failing envelope is re-sent
+                    on every run, forever.
+      "auth"      — 401/403: the device key is bad/revoked; EVERY push will fail the
+                    same way, so the caller aborts the run (nothing skip-queued, so
+                    sessions resume after the key is fixed).
+      "transient" — 5xx/network after MAX_ATTEMPTS: leave unrecorded, retry next scan.
+    """
     url = config["apiUrl"].rstrip("/") + "/ingest/sessions"
     body = gzip.compress(json.dumps(envelope).encode("utf-8"))
+    last = "unknown"
     for attempt in range(1, MAX_ATTEMPTS + 1):
         req = urllib.request.Request(url, data=body, method="POST", headers={
             "Authorization": "Bearer " + config["deviceKey"],
@@ -85,18 +99,21 @@ def push_one(config, envelope):
         })
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
-                return 200 <= r.status < 300
+                return "ok" if 200 <= r.status < 300 else "transient"
         except urllib.error.HTTPError as e:
-            if e.code in (401, 403, 400, 413):
-                print(f"{_now_iso()}: push {envelope['session_id']} rejected ({e.code}) — not retrying")
-                return False  # permanent: bad key / bad envelope / too large
+            if e.code in (400, 413):
+                print(f"{_now_iso()}: push {envelope['session_id']} rejected ({e.code}) — skip-queued (won't retry)")
+                return "skip"  # permanent for this content: bad envelope / too large for plan
+            if e.code in (401, 403):
+                print(f"{_now_iso()}: push {envelope['session_id']} auth rejected ({e.code}) — aborting run; re-install the device key")
+                return "auth"  # bad/revoked key: aborts the whole run, nothing skip-queued
             last = f"HTTP {e.code}"
         except Exception as e:  # noqa: BLE001 — network/timeout are all transient here
             last = str(e)
         if attempt < MAX_ATTEMPTS:
             time.sleep(min(2 ** attempt, 30))
     print(f"{_now_iso()}: push {envelope['session_id']} failed after {MAX_ATTEMPTS} attempts: {last}")
-    return False
+    return "transient"
 
 
 def main(argv=None):
@@ -116,9 +133,16 @@ def main(argv=None):
             print(f"{_now_iso()}: build failed for {desc.get('session_id')}: {e} — skip-queued")
             extract.record_skip(args.work, desc.get("session_id", "?"))
             continue
-        if push_one(config, envelope):
+        status = push_one(config, envelope)
+        if status == "ok":
             extract.record_ledger(args.work, desc["ledger_key"])
             pushed += 1
+        elif status == "skip":
+            extract.record_skip(args.work, desc.get("session_id", "?"))
+        elif status == "auth":
+            print(f"{_now_iso()}: aborting run — device key rejected; fix it and re-run")
+            break
+        # "transient": leave unrecorded so the next scan retries it
     print(f"{_now_iso()}: pushed {pushed}/{len(plan)} session(s)")
     return 0
 

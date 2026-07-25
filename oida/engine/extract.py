@@ -19,6 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sources  # noqa: E402
+from redact import redact  # noqa: E402
 
 
 def _git(cwd, args, timeout=8):
@@ -29,25 +30,47 @@ def _git(cwd, args, timeout=8):
         return ""
 
 
-_REMOTE_RE = re.compile(r"(?:git@[^:]+:|ssh://[^/]+/|https?://[^/]+/)([^/\s]+/[^/\s]+?)(?:\.git)?/?$")
+_REMOTE_RE = re.compile(
+    r"(?:git@(?P<h1>[^:]+):|ssh://(?:[^@/]+@)?(?P<h2>[^/:]+)(?::\d+)?/|https?://(?:[^@/]+@)?(?P<h3>[^/:]+)(?::\d+)?/)"
+    r"(?P<repo>[^/\s]+/[^/\s]+?)(?:\.git)?/?$")
+
+
+def _remote_match(remote):
+    return _REMOTE_RE.search(remote.strip()) if remote else None
 
 
 def owner_repo_from_remote(remote):
-    if not remote:
+    m = _remote_match(remote)
+    return m.group("repo") if m else None
+
+
+def host_from_remote(remote):
+    """The remote's host, lowercased — `owner/repo` alone is not an identity.
+    Two different hosts can serve the same owner/repo, so the allowlist check
+    would otherwise fail OPEN for a same-named repo on another host."""
+    m = _remote_match(remote)
+    if not m:
         return None
-    m = _REMOTE_RE.search(remote.strip())
-    return m.group(1) if m else None
+    host = m.group("h1") or m.group("h2") or m.group("h3")
+    return host.lower() if host else None
 
 
 def git_info(cwd):
-    """{remote, owner_repo, branch} for the session's working dir, or {}."""
+    """{remote, host, owner_repo, branch} for the session's working dir, or {}.
+
+    `remote` is REDACTED: credentialed remotes are common
+    (https://oauth2:ghp_…@github.com/acme/app.git) and this value goes into the
+    envelope verbatim, so the token would ship with it."""
     if not cwd or not os.path.isdir(cwd):
         return {}
     remote = _git(cwd, ["config", "--get", "remote.origin.url"])
     branch = _git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])
     info = {}
     if remote:
-        info["remote"] = remote
+        info["remote"] = redact(remote)
+    host = host_from_remote(remote)
+    if host:
+        info["host"] = host
     owner_repo = owner_repo_from_remote(remote)
     if owner_repo:
         info["owner_repo"] = owner_repo
@@ -56,8 +79,42 @@ def git_info(cwd):
     return info
 
 
+# Hosts whose `owner/repo` may be matched against a host-less allowlist entry.
+# The designated scopes are GitHub repos, so github.com is the only default;
+# GitHub Enterprise deployments add theirs via config.json `gitHosts`.
+DEFAULT_GIT_HOSTS = ("github.com",)
+
+
+def repo_allowed(repo_info, allow, hosts=DEFAULT_GIT_HOSTS):
+    """Client-side allowlist gate (the server re-enforces P6 regardless).
+
+    `owner/repo` alone is not a repo identity: a session in gitlab.com/acme/app
+    or a personal fork on another host would match a workspace that designated
+    acme/app on GitHub — a default-deny gate failing OPEN. So an entry matches
+    only if it names the host explicitly (`host/owner/repo`), or if it is
+    host-less and the session's host is one we accept for host-less entries."""
+    owner_repo = (repo_info or {}).get("owner_repo")
+    if not owner_repo:
+        return False
+    host = (repo_info or {}).get("host")
+    allow = {str(a).strip().lower().lstrip("/") for a in (allow or set())}
+    if host and f"{host}/{owner_repo}".lower() in allow:
+        return True
+    if owner_repo.lower() not in allow:
+        return False
+    # Host-less entry: accept only from a host we treat as the designated one.
+    # A session with no resolvable host (no remote) never passes.
+    return bool(host) and host in {h.lower() for h in hosts}
+
+
 def git_email(cwd):
-    return _git(cwd or ".", ["config", "--get", "user.email"]) or _git(".", ["config", "--get", "user.email"])
+    """The session repo's configured author email.
+
+    No fallback to the process CWD: push.py runs detached with an inherited
+    working directory, so `.` is often an unrelated repo — that email would be
+    stored as the envelope's author AND passed as git_stats' --author filter,
+    silently attributing (or zeroing) another repo's work."""
+    return _git(cwd, ["config", "--get", "user.email"]) if cwd else ""
 
 
 def _head_tail(path):
@@ -152,8 +209,25 @@ def _self_test():
     assert owner_repo_from_remote("https://github.com/kakashi-ventures/oida") == "kakashi-ventures/oida"
     assert owner_repo_from_remote("https://github.com/kakashi-ventures/oida.git") == "kakashi-ventures/oida"
     assert owner_repo_from_remote("") is None and owner_repo_from_remote(None) is None
+    # The host is part of the repo identity (allowlist must not fail open).
+    assert host_from_remote("git@github.com:kva/oida.git") == "github.com"
+    assert host_from_remote("https://GitLab.com/kva/oida.git") == "gitlab.com"
+    assert host_from_remote("ssh://git@git.internal:2222/kva/oida.git") == "git.internal"
+    assert host_from_remote("https://oauth2:ghp_x@github.com/kva/oida.git") == "github.com"
+    assert owner_repo_from_remote("https://oauth2:ghp_x@github.com/kva/oida.git") == "kva/oida"
+    assert host_from_remote("not-a-remote") is None
+    # Host-blind allowlist matching must not fail open.
+    allow = {"kva/oida", "github.com/kva/other"}
+    assert repo_allowed({"owner_repo": "kva/oida", "host": "github.com"}, allow)
+    assert not repo_allowed({"owner_repo": "kva/oida", "host": "gitlab.com"}, allow)
+    assert not repo_allowed({"owner_repo": "kva/oida"}, allow)  # no host → no match
+    assert repo_allowed({"owner_repo": "kva/oida", "host": "git.acme.dev"}, allow, hosts=("git.acme.dev",))
+    assert repo_allowed({"owner_repo": "kva/other", "host": "github.com"}, allow)
+    assert not repo_allowed({"owner_repo": "kva/other", "host": "gitlab.com"}, allow)
+    assert not repo_allowed({}, allow) and not repo_allowed(None, allow)
+    assert not repo_allowed({"owner_repo": "kva/oida", "host": "github.com"}, set())
     assert content_key("s1", "abc") == "s1:abc"
-    print("OK self-test: extract (remote parsing / content key)")
+    print("OK self-test: extract (remote parsing / host / allowlist / content key)")
 
 
 if __name__ == "__main__":

@@ -33,9 +33,10 @@ OIDA → Settings → "OIDA for Claude". At mint time you tick a consent stateme
 
 ## Redaction is best-effort — don't paste live secrets
 
-Turn text and tool-call inputs are passed through a local pattern-based redactor (API keys,
-tokens, connection strings) before leaving your machine. **It is not exhaustive.** Never paste
-live secrets into prompts — use a secret manager. If a secret does slip through, use **erase**
+Every string that leaves your machine — turn text, tool-call inputs, **commit subjects** and
+the **git remote URL** — is passed through a local pattern-based redactor (API keys, tokens,
+connection strings, credentialed remotes) first. **It is not exhaustive.** Never paste live
+secrets into prompts — use a secret manager. If a secret does slip through, use **erase**
 (below) and tell your admin.
 
 ## Your controls

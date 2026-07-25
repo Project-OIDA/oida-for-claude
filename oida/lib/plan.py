@@ -4,7 +4,7 @@
 From all discovered Claude Code sessions, keep those that are:
   - NEW or CHANGED   (cheap session_id:mtime:size signature not in the ledger),
   - QUIESCENT        (untouched for >= 30 min — not still being written),
-  - ALLOWLISTED      (repo owner/repo is in the org's designated set), and
+  - ALLOWLISTED      (repo host + owner/repo is in the org's designated set), and
   - not in the skip queue.
 Writes plan.json = the session descriptors push.py will build + send. The allowlist
 is fetched from GET /ingest/sessions/allowlist and cached ~1h; on a network miss we
@@ -74,6 +74,9 @@ def main(argv=None):
 
     config = load_config()
     allow = get_allowlist(config, args.work)
+    # Hosts accepted for host-less allowlist entries (GitHub Enterprise adds its
+    # own): `owner/repo` from any other host is NOT a match.
+    hosts = tuple(config.get("gitHosts") or extract.DEFAULT_GIT_HOSTS)
     ledger = extract.load_ledger(args.work)
     skip = extract.load_skip(args.work)
     now = time.time()
@@ -90,9 +93,8 @@ def main(argv=None):
         desc = extract.describe_session(path)
         if not desc or desc["session_id"] in skip:
             continue
-        owner_repo = (desc.get("repo") or {}).get("owner_repo")
-        if not owner_repo or owner_repo not in allow:
-            continue  # repo-less or not designated (client gate; server re-enforces P6)
+        if not extract.repo_allowed(desc.get("repo"), allow, hosts):
+            continue  # repo-less, wrong host, or not designated (server re-enforces P6)
         desc["ledger_key"] = extract.content_key(desc["session_id"], f"{int(mtime)}:{size}")
         if desc["ledger_key"] in ledger:
             continue  # unchanged since last successful push
