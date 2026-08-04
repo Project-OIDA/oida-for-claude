@@ -48,7 +48,7 @@ secrets into prompts — use a secret manager. If a secret does slip through, us
 | Withdraw consent | Settings → "Withdraw my consent & revoke my keys" | All your keys revoked, future capture stops. **Already-stored knowledge is *not* deleted by this** — use erase |
 | Erase a session's data | Per-session erase / ask your admin | Deletes that session's stored transcript + derived knowledge |
 
-Old data also ages out automatically on your plan's retention window (90 / 180 / 365 days).
+Raw captured session content ages out automatically on the workspace retention window. Derived organizational learning records do **not** age out merely because the source reaches that window; an explicit session/source erasure propagates to frozen copies and derived stores while retaining only justified content-free audit markers.
 
 ## How it stays private
 
@@ -60,5 +60,5 @@ Old data also ages out automatically on your plan's retention window (90 / 180 /
 - **No individual evaluation**: OIDA has no per-person analytics or ranking — your git email is
   used only for provenance and to let you erase your own data.
 
-See the repo `README.md` for install/ops and `../project-oida-be-sessions/docs/subprocessors.md`
+See the repo `README.md` for install/ops and `../../project-oida-be/docs/subprocessors.md`
 (via your admin) for who processes the data.
